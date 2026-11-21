@@ -334,24 +334,20 @@
   }
   .options{
     display:grid;
-    grid-template-columns:1fr 1fr;
-    grid-template-rows:repeat(3, auto);
-    grid-auto-flow:column;
-    gap:7px;
-  }
-  @media (max-width:360px){
-    .options{ grid-template-columns:1fr; grid-auto-flow:row; }
+    grid-template-columns:1fr;
+    grid-auto-flow:row;
+    gap:8px;
   }
   .choice-btn{
     display:flex;
     align-items:flex-start;
-    gap:7px;
+    gap:8px;
     width:100%;
     text-align:left;
     font:inherit;
-    font-size:13px;
-    line-height:1.35;
-    padding:9px 10px;
+    font-size:14.5px;
+    line-height:1.5;
+    padding:11px 12px;
     border-radius:10px;
     border:1px solid var(--border);
     background:var(--surface-alt);
@@ -367,6 +363,9 @@
     font-weight:700;
     color:var(--accent-strong);
     flex:0 0 auto;
+  }
+  .choice-text{
+    white-space:pre-line;
   }
   .choice-btn.is-correct{
     background:var(--success-soft);
@@ -404,7 +403,7 @@
     font-weight:800;
     flex:0 0 auto;
   }
-  .callout-text{ font-weight:600; }
+  .callout-text{ font-weight:600; white-space:pre-line; }
 
   #nextBtn{ width:100%; margin-top:10px; }
 
@@ -470,6 +469,7 @@
   }
   table.mistake-table td.num{ font-variant-numeric:tabular-nums; color:var(--ink-soft); width:36px; }
   table.mistake-table td.word{ font-weight:700; white-space:normal; min-width:88px; }
+  table.mistake-table td.meaning{ white-space:pre-line; }
   table.mistake-table td.count{ text-align:right; color:var(--danger); font-weight:700; font-variant-numeric:tabular-nums; width:52px; white-space:nowrap; }
 
   /* Confetti */
@@ -866,6 +866,45 @@ const $ = id => document.getElementById(id);
 const NUM_CHOICES = 6;
 const CIRCLED = ['①','②','③','④','⑤','⑥'];
 const TIME_LIMITS = {timed3:3000, timed5:5000, timed7:7000};
+
+// Strip internal POS-classification tags ([自]/[他]/[名]/[形]/[副]/[前]/[接]/[助]/[動]/[熟])
+// from displayed meaning text, and insert a line break before each genuine
+// numbered sub-sense marker (①②③…) so multi-sense entries read as separate
+// lines on a phone screen. This only changes what is DISPLAYED — word.pos
+// (used by the distractor-selection algorithm) is untouched.
+const POS_TAG_RE = /\[(自|他|名|形|副|前|接|助|動|熟)\]\s*/g;
+const CIRCLED_SET = new Set(['①','②','③','④','⑤','⑥','⑦','⑧','⑨']);
+const OPEN_BRACKETS = new Set(['（','(','〈','[']);
+const CLOSE_BRACKETS = new Set(['）',')','〉',']']);
+function formatMeaning(raw){
+  const s = raw.replace(POS_TAG_RE, '');
+  let depth = 0;
+  const candidates = [];
+  for(let i=0;i<s.length;i++){
+    const ch = s[i];
+    if(OPEN_BRACKETS.has(ch)) depth++;
+    else if(CLOSE_BRACKETS.has(ch)) depth--;
+    else if(CIRCLED_SET.has(ch) && depth===0) candidates.push(i);
+  }
+  const realSplits = [];
+  for(let idx=0; idx<candidates.length; idx++){
+    const pos = candidates[idx];
+    if(idx>0 && pos === candidates[idx-1]+1) continue; // adjacent markers -> not a real split (back-reference note)
+    if(s.slice(Math.max(0,pos-2),pos) === '分の') continue; // fraction notation, e.g. 4分の1
+    realSplits.push(pos);
+  }
+  if(realSplits.length===0) return s.trim();
+  const out = [];
+  let prev = 0;
+  for(const pos of realSplits){
+    const seg = s.slice(prev,pos).trim();
+    if(seg) out.push(seg);
+    prev = pos;
+  }
+  const tail = s.slice(prev).trim();
+  if(tail) out.push(tail);
+  return out.join('\n');
+}
 function modeLabel(m){
   if(m==='timed3') return '3秒';
   if(m==='timed5') return '5秒';
@@ -1075,11 +1114,11 @@ function renderWeakScreen(){
     tr.innerHTML =
       `<td class="rank">${i+1}</td>` +
       `<td class="word"></td>` +
-      `<td></td>` +
+      `<td class="meaning"></td>` +
       `<td class="count">${e.wrong||0}回</td>` +
       `<td class="mastery">${e.mastery||0}/${MASTERY_GOAL}</td>`;
     tr.children[1].textContent = e.word.w;
-    tr.children[2].textContent = e.word.m;
+    tr.children[2].textContent = formatMeaning(e.word.m);
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -1526,7 +1565,7 @@ function renderQuestion(){
     numSpan.textContent = CIRCLED[i];
     const textSpan = document.createElement('span');
     textSpan.className = 'choice-text';
-    textSpan.textContent = text;
+    textSpan.textContent = formatMeaning(text);
     btn.appendChild(numSpan);
     btn.appendChild(textSpan);
     btn.addEventListener('click', ()=> selectAnswer(i));
@@ -1557,7 +1596,7 @@ function injectRepeats(word){
 function showCorrectAnswerCallout(){
   const idx = currentOptions.correctPos;
   $('calloutNum').textContent = CIRCLED[idx];
-  $('calloutText').textContent = currentOptions.options[idx];
+  $('calloutText').textContent = formatMeaning(currentOptions.options[idx]);
   $('answerCallout').hidden = false;
 }
 
@@ -1712,10 +1751,10 @@ function renderResult(graduated){
     tr.innerHTML =
       `<td class="num">${m.word.no}</td>` +
       `<td class="word"></td>` +
-      `<td></td>` +
+      `<td class="meaning"></td>` +
       `<td class="count">${m.count}回</td>`;
     tr.children[1].textContent = m.word.w;
-    tr.children[2].textContent = m.word.m;
+    tr.children[2].textContent = formatMeaning(m.word.m);
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
