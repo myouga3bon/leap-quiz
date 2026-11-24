@@ -148,11 +148,13 @@
     outline-offset:2px;
   }
 
+  .custom-range-wrap{
+    margin-top:12px;
+  }
   .custom-range-row{
     display:flex;
     align-items:center;
     gap:8px;
-    margin-top:12px;
     flex-wrap:nowrap;
   }
   .custom-range-row .custom-range-label{
@@ -166,10 +168,54 @@
     min-width:0;
     width:auto;
   }
+  .custom-range-input{
+    flex:1 1 auto;
+    min-width:0;
+    width:auto;
+    font:inherit;
+    font-size:16px;
+    text-align:center;
+    color:var(--ink);
+    background:var(--surface-alt);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:10px 8px;
+    font-variant-numeric:tabular-nums;
+    -moz-appearance:textfield;
+    appearance:textfield;
+  }
+  .custom-range-input::-webkit-outer-spin-button,
+  .custom-range-input::-webkit-inner-spin-button{
+    -webkit-appearance:none;
+    margin:0;
+  }
+  .custom-range-input:focus-visible{ outline:2px solid var(--accent-strong); outline-offset:2px; }
   .custom-range-row .custom-range-sep{
     flex:0 0 auto;
     color:var(--ink-soft);
   }
+  .btn-clear-custom{
+    display:inline-block;
+    margin-top:8px;
+    font:inherit;
+    font-size:12.5px;
+    font-weight:700;
+    padding:7px 14px;
+    border-radius:999px;
+    border:1px solid var(--border);
+    background:var(--surface-alt);
+    color:var(--ink-soft);
+    cursor:pointer;
+    transition:background .15s ease, color .15s ease, border-color .15s ease;
+  }
+  .btn-clear-custom:hover{ border-color:var(--accent); color:var(--accent-strong); }
+  .btn-clear-custom:focus-visible{ outline:2px solid var(--accent-strong); outline-offset:2px; }
+  .custom-range-remember{
+    margin:8px 0 0;
+    font-size:12px;
+    color:var(--ink-soft);
+  }
+  .custom-range-remember[hidden]{ display:none; }
 
   select{
     width:100%;
@@ -695,12 +741,16 @@
           </div>
         </fieldset>
         <select id="rangeSelect" aria-label="出題範囲の具体的な区間" style="margin-top:12px;"></select>
-        <div class="custom-range-row" id="customRangeRow" hidden>
-          <label class="custom-range-label" for="customStart">開始</label>
-          <select id="customStart" aria-label="開始番号"></select>
-          <span class="custom-range-sep">〜</span>
-          <label class="custom-range-label" for="customEnd">終了</label>
-          <select id="customEnd" aria-label="終了番号"></select>
+        <div class="custom-range-wrap" id="customRangeRow" hidden>
+          <div class="custom-range-row">
+            <label class="custom-range-label" for="customStart">開始</label>
+            <input type="number" id="customStart" class="custom-range-input" inputmode="numeric" pattern="[0-9]*" min="1" aria-label="開始番号">
+            <span class="custom-range-sep">〜</span>
+            <label class="custom-range-label" for="customEnd">終了</label>
+            <input type="number" id="customEnd" class="custom-range-input" inputmode="numeric" pattern="[0-9]*" min="1" aria-label="終了番号">
+          </div>
+          <button type="button" class="btn-clear-custom" id="customClearBtn">クリア</button>
+          <p class="custom-range-remember" id="customRangeRemember" hidden>※前回入力した番号を記憶しています</p>
         </div>
         <p class="summary-line" id="summaryText"></p>
       </div>
@@ -1350,21 +1400,56 @@ function buildRangesForChunk(chunk){
   return ranges;
 }
 
-function populateCustomSelects(){
-  const startSel = $('customStart');
-  const endSel = $('customEnd');
-  if(startSel.options.length === 0){
-    for(let i=1;i<=TOTAL_WORDS;i++){
-      const opt1 = document.createElement('option');
-      opt1.value = i; opt1.textContent = `${i}番`;
-      startSel.appendChild(opt1);
-      const opt2 = document.createElement('option');
-      opt2.value = i; opt2.textContent = `${i}番`;
-      endSel.appendChild(opt2);
-    }
-    startSel.value = 1;
-    endSel.value = TOTAL_WORDS;
+/* Custom range (開始番号/終了番号) is typed in directly as numbers rather
+   than picked from a 2300-entry dropdown. The last values typed are
+   remembered in this browser's localStorage so they're pre-filled again
+   next time the custom range is used. */
+const CUSTOM_RANGE_KEY = 'leapCustomRange';
+let customRangeInited = false;
+
+function loadCustomRange(){
+  try{
+    const raw = localStorage.getItem(CUSTOM_RANGE_KEY);
+    if(!raw) return null;
+    const obj = JSON.parse(raw);
+    if(obj && Number.isFinite(obj.start) && Number.isFinite(obj.end)) return obj;
+  }catch(e){}
+  return null;
+}
+function saveCustomRange(start, end){
+  try{ localStorage.setItem(CUSTOM_RANGE_KEY, JSON.stringify({start, end})); }catch(e){}
+}
+function clearCustomRangeStore(){
+  try{ localStorage.removeItem(CUSTOM_RANGE_KEY); }catch(e){}
+}
+function persistCustomRangeIfValid(){
+  const s = parseInt($('customStart').value, 10);
+  const e = parseInt($('customEnd').value, 10);
+  const rememberNote = $('customRangeRemember');
+  if(Number.isFinite(s) && Number.isFinite(e)){
+    saveCustomRange(s, e);
+    if(rememberNote) rememberNote.hidden = false;
   }
+}
+
+function initCustomRangeInputs(){
+  const startInput = $('customStart');
+  const endInput = $('customEnd');
+  startInput.max = TOTAL_WORDS;
+  endInput.max = TOTAL_WORDS;
+  if(customRangeInited) return;
+  const saved = loadCustomRange();
+  const rememberNote = $('customRangeRemember');
+  if(saved){
+    startInput.value = saved.start;
+    endInput.value = saved.end;
+    if(rememberNote) rememberNote.hidden = false;
+  } else {
+    startInput.value = 1;
+    endInput.value = TOTAL_WORDS;
+    if(rememberNote) rememberNote.hidden = true;
+  }
+  customRangeInited = true;
 }
 
 function populateRangeSelect(chunk){
@@ -1373,7 +1458,7 @@ function populateRangeSelect(chunk){
   if(chunk === 'custom'){
     sel.hidden = true;
     customRow.hidden = false;
-    populateCustomSelects();
+    initCustomRangeInputs();
     currentRanges = [];
     return;
   }
@@ -1393,8 +1478,12 @@ function populateRangeSelect(chunk){
 function getSelectedPool(){
   const chunkEl = document.querySelector('input[name="chunk"]:checked');
   if(chunkEl && chunkEl.value === 'custom'){
-    const rawStart = parseInt($('customStart').value || 1, 10);
-    const rawEnd = parseInt($('customEnd').value || TOTAL_WORDS, 10);
+    let rawStart = parseInt($('customStart').value, 10);
+    let rawEnd = parseInt($('customEnd').value, 10);
+    if(!Number.isFinite(rawStart)) rawStart = 1;
+    if(!Number.isFinite(rawEnd)) rawEnd = TOTAL_WORDS;
+    rawStart = Math.min(Math.max(rawStart,1), TOTAL_WORDS);
+    rawEnd = Math.min(Math.max(rawEnd,1), TOTAL_WORDS);
     const start = Math.min(rawStart, rawEnd);
     const end = Math.max(rawStart, rawEnd);
     const range = {start, end, label:`${start}〜${end}番（${end-start+1}語・カスタム）`, count:end-start+1};
@@ -1770,8 +1859,18 @@ function wireEvents(){
     });
   });
   $('rangeSelect').addEventListener('change', updateSelectionSummary);
-  $('customStart').addEventListener('change', updateSelectionSummary);
-  $('customEnd').addEventListener('change', updateSelectionSummary);
+  $('customStart').addEventListener('input', updateSelectionSummary);
+  $('customEnd').addEventListener('input', updateSelectionSummary);
+  $('customStart').addEventListener('change', persistCustomRangeIfValid);
+  $('customEnd').addEventListener('change', persistCustomRangeIfValid);
+  $('customClearBtn').addEventListener('click', ()=>{
+    $('customStart').value = '';
+    $('customEnd').value = '';
+    clearCustomRangeStore();
+    $('customRangeRemember').hidden = true;
+    updateSelectionSummary();
+    $('customStart').focus();
+  });
   document.querySelectorAll('input[name="count"]').forEach(el=>{
     el.addEventListener('change', updateSelectionSummary);
   });
